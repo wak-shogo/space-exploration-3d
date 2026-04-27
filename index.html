@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Space Exploration 3D</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: monospace; user-select: none; touch-action: none; }
+  #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; text-shadow: 1px 1px 2px #000; }
+  .top-bar, .bottom-bar { display: flex; justify-content: space-between; padding: 10px; pointer-events: auto; }
+  .status { background: rgba(0,0,0,0.6); padding: 10px; border: 1px solid #fff; border-radius: 5px; }
+  .bar { width: 120px; height: 10px; border: 1px solid #fff; margin-top: 4px; margin-bottom: 8px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.2); }
+  .bar-inner { height: 100%; transition: width 0.1s; }
+  .btn { background: rgba(255,255,255,0.1); border: 1px solid #fff; color: #fff; padding: 8px 12px; cursor: pointer; border-radius: 5px; text-align: center; backdrop-filter: blur(2px); margin-bottom: 5px; }
+  .btn:active { background: rgba(255,255,255,0.4); }
+  .ctrl-group { display: grid; grid-template-columns: repeat(3, 45px); grid-template-rows: repeat(3, 45px); gap: 5px; }
+  .ctrl-btn { border: 1px solid #fff; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.5); border-radius: 5px; cursor: pointer; backdrop-filter: blur(2px); font-size: 14px; }
+  .ctrl-btn:active { background: rgba(255,255,255,0.4); }
+  #minimap { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); border: 1px solid #fff; display: none; background: rgba(0,0,0,0.5); border-radius: 5px; }
+  #craft-menu { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,20,0,0.9); border: 1px solid #0f0; padding: 20px; pointer-events: auto; z-index: 100; border-radius: 10px; }
+  #msg { position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; font-weight: bold; opacity: 0; transition: opacity 0.5s; text-align: center; text-shadow: 0 0 5px #fff; }
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+<canvas id="minimap" width="200" height="200"></canvas>
+<div id="ui">
+  <div class="top-bar">
+    <div class="status">
+      HP <div class="bar"><div id="hp-bar" class="bar-inner" style="background:#f55;"></div></div>
+      FUEL <div class="bar"><div id="fuel-bar" class="bar-inner" style="background:#fa0;"></div></div>
+      ENGY <div class="bar"><div id="energy-bar" class="bar-inner" style="background:#0cf;"></div></div>
+      ROCKS: <span id="rock-val">0</span>
+    </div>
+    <div style="display:flex; flex-direction:column;">
+      <div class="btn" id="btn-map">🗺️ MAP</div>
+      <div class="btn" id="btn-time">⏱️ TIME: 1x</div>
+      <div class="btn" id="btn-craft">⚙️ CRAFT</div>
+      <label style="background:rgba(0,0,0,0.5); padding:5px; border-radius:5px; border:1px solid #fff; font-size:12px;">
+        GRAVITY <input type="range" id="grav-slider" min="1" max="200" value="50" style="width:80px; vertical-align:middle;">
+      </label>
+    </div>
+  </div>
+  
+  <div id="msg">Message</div>
+  
+  <div class="bottom-bar">
+    <div class="ctrl-group">
+      <div class="ctrl-btn" onpointerdown="inp.rollL=1" onpointerup="inp.rollL=0" onpointerleave="inp.rollL=0" oncontextmenu="return false;">Q(RL)</div>
+      <div class="ctrl-btn" onpointerdown="inp.pitchD=1" onpointerup="inp.pitchD=0" onpointerleave="inp.pitchD=0" oncontextmenu="return false;">W(P↓)</div>
+      <div class="ctrl-btn" onpointerdown="inp.rollR=1" onpointerup="inp.rollR=0" onpointerleave="inp.rollR=0" oncontextmenu="return false;">E(RR)</div>
+      <div class="ctrl-btn" onpointerdown="inp.yawL=1" onpointerup="inp.yawL=0" onpointerleave="inp.yawL=0" oncontextmenu="return false;">A(YL)</div>
+      <div class="ctrl-btn" onpointerdown="inp.pitchU=1" onpointerup="inp.pitchU=0" onpointerleave="inp.pitchU=0" oncontextmenu="return false;">S(P↑)</div>
+      <div class="ctrl-btn" onpointerdown="inp.yawR=1" onpointerup="inp.yawR=0" onpointerleave="inp.yawR=0" oncontextmenu="return false;">D(YR)</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:5px;width:120px;">
+      <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.drill=1" onpointerup="inp.drill=0" onpointerleave="inp.drill=0" oncontextmenu="return false;">⛏️ DRILL (F)</div>
+      <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.fwd=1" onpointerup="inp.fwd=0" onpointerleave="inp.fwd=0" oncontextmenu="return false;">⇧ FWD (Sh)</div>
+      <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.bwd=1" onpointerup="inp.bwd=0" onpointerleave="inp.bwd=0" oncontextmenu="return false;">⇩ BWD (Ct)</div>
+    </div>
+  </div>
+</div>
+
+<div id="craft-menu">
+  <h2 style="color:#0f0; margin-top:0;">ENGINEERING</h2>
+  <div class="btn" onclick="craft('repair')">🔧 REPAIR HP (10 ROCKS)</div>
+  <div class="btn" onclick="craft('fuel')">⛽ REFINE FUEL (10 ROCKS, 20 ENGY)</div>
+  <div class="btn" onclick="craft('self_destruct')" style="color:#f55; border-color:#f55; margin-top:20px;">💥 EMERGENCY SELF DESTRUCT</div>
+  <div class="btn" onclick="document.getElementById('craft-menu').style.display='none'" style="margin-top:20px; background:#444;">CLOSE</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 150000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById('game-container').appendChild(renderer.domElement);
+
+const ambientLight = new THREE.AmbientLight(0x222222);
+scene.add(ambientLight);
+
+// Starfield
+const starfieldCount = 8000;
+const positions = new Float32Array(starfieldCount * 3);
+for(let i=0; i<starfieldCount*3; i++) {
+  positions[i] = (Math.random() - 0.5) * 100000;
+}
+const starfieldGeo = new THREE.BufferGeometry();
+starfieldGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+const starfieldMat = new THREE.PointsMaterial({color:0xffffff, size:20, sizeAttenuation:true});
+const starfield = new THREE.Points(starfieldGeo, starfieldMat);
+scene.add(starfield);
+
+// Ship model
+const shipGroup = new THREE.Group();
+const shipGeo = new THREE.ConeGeometry(3, 10, 8);
+shipGeo.rotateX(-Math.PI / 2); // Point to -Z
+const shipMat = new THREE.MeshPhongMaterial({ color: 0xdddddd, flatShading: true });
+const shipMesh = new THREE.Mesh(shipGeo, shipMat);
+shipGroup.add(shipMesh);
+
+// Engine glow
+const glowGeo = new THREE.SphereGeometry(1.5, 8, 8);
+const glowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0 });
+const engineGlow = new THREE.Mesh(glowGeo, glowMat);
+engineGlow.position.set(0, 0, 5);
+shipGroup.add(engineGlow);
+
+// Vector line
+const vecGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-20)]);
+const vecMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+const vectorLine = new THREE.Line(vecGeo, vecMat);
+scene.add(vectorLine);
+
+scene.add(shipGroup);
+
+// Ship Physics
+const ship = {
+  pos: new THREE.Vector3(0,0,0),
+  vel: new THREE.Vector3(0,0,0),
+  angVel: new THREE.Vector3(0,0,0),
+  quat: new THREE.Quaternion(),
+  hp: 100, maxHp: 100,
+  fuel: 100, maxFuel: 100,
+  energy: 100, maxEnergy: 100,
+  rocks: 0
+};
+
+const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0 };
+let timeWarp = 1;
+
+// Controls
+window.addEventListener('keydown', e => {
+  if(e.code==='KeyW') inp.pitchD=1;
+  if(e.code==='KeyS') inp.pitchU=1;
+  if(e.code==='KeyA') inp.yawL=1;
+  if(e.code==='KeyD') inp.yawR=1;
+  if(e.code==='KeyQ') inp.rollL=1;
+  if(e.code==='KeyE') inp.rollR=1;
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight') inp.fwd=1;
+  if(e.code==='ControlLeft'||e.code==='ControlRight') inp.bwd=1;
+  if(e.code==='KeyF'||e.code==='Space') inp.drill=1;
+  if(e.code==='KeyM') toggleMap();
+  if(e.code==='KeyT') toggleTime();
+  if(e.code==='KeyC') toggleCraft();
+});
+window.addEventListener('keyup', e => {
+  if(e.code==='KeyW') inp.pitchD=0;
+  if(e.code==='KeyS') inp.pitchU=0;
+  if(e.code==='KeyA') inp.yawL=0;
+  if(e.code==='KeyD') inp.yawR=0;
+  if(e.code==='KeyQ') inp.rollL=0;
+  if(e.code==='KeyE') inp.rollR=0;
+  if(e.code==='ShiftLeft'||e.code==='ShiftRight') inp.fwd=0;
+  if(e.code==='ControlLeft'||e.code==='ControlRight') inp.bwd=0;
+  if(e.code==='KeyF'||e.code==='Space') inp.drill=0;
+});
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function toggleMap() {
+  const m = document.getElementById('minimap');
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+function toggleTime() {
+  timeWarp = timeWarp === 1 ? 10 : (timeWarp === 10 ? 100 : 1);
+  document.getElementById('btn-time').innerText = `⏱️ TIME: ${timeWarp}x`;
+  showMessage(`TIME WARP: ${timeWarp}x`);
+}
+function toggleCraft() {
+  const c = document.getElementById('craft-menu');
+  c.style.display = c.style.display === 'none' ? 'block' : 'none';
+}
+
+document.getElementById('btn-map').onclick = toggleMap;
+document.getElementById('btn-time').onclick = toggleTime;
+document.getElementById('btn-craft').onclick = toggleCraft;
+
+function showMessage(text) {
+  const m = document.getElementById('msg');
+  m.innerText = text;
+  m.style.opacity = 1;
+  setTimeout(() => m.style.opacity = 0, 2000);
+}
+
+function craft(type) {
+  if(type === 'repair' && ship.rocks >= 10) {
+    if(ship.hp >= ship.maxHp) { showMessage("HP FULL"); return; }
+    ship.rocks -= 10; ship.hp = Math.min(ship.maxHp, ship.hp + 50); showMessage("REPAIRED +50 HP");
+  } else if(type === 'fuel' && ship.rocks >= 10 && ship.energy >= 20) {
+    if(ship.fuel >= ship.maxFuel) { showMessage("FUEL FULL"); return; }
+    ship.rocks -= 10; ship.energy -= 20; ship.fuel = Math.min(ship.maxFuel, ship.fuel + 50); showMessage("REFINED +50 FUEL");
+  } else if(type === 'self_destruct') {
+    die(); document.getElementById('craft-menu').style.display='none';
+  } else {
+    showMessage("NOT ENOUGH RESOURCES");
+  }
+}
+
+// World Generation
+const celestialBodies = [];
+const generatedSystems = new Set();
+const SYSTEM_GRID = 30000;
+
+function hash(x, y, z) {
+  let h = (x|0) * 374761393 + (y|0) * 668265263 + (z|0) * 374761393;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return (h ^ (h >> 16)) >>> 0;
+}
+function random(seed) { return ((seed * 9301 + 49297) % 233280) / 233280; }
+
+function getSystemCenter(cx, cy, cz) {
+  let s = hash(cx, cy, cz);
+  return {
+    x: cx * SYSTEM_GRID + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
+    y: cy * SYSTEM_GRID + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
+    z: cz * SYSTEM_GRID + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
+    s: s
+  };
+}
+
+const textureLoader = new THREE.TextureLoader();
+
+function createSystem(cx, cy, cz) {
+  const center = getSystemCenter(cx, cy, cz);
+  let s = center.s;
+  if (random(s++) > 0.4 && (cx!==0||cy!==0||cz!==0)) return; // 40% chance, but 0,0,0 always has one
+  
+  const starRadius = 500 + random(s++) * 1000;
+  const starColor = new THREE.Color().setHSL(random(s++), 0.8, 0.6);
+  const starGeo = new THREE.SphereGeometry(starRadius, 32, 32);
+  const starMat = new THREE.MeshBasicMaterial({ color: starColor });
+  const starMesh = new THREE.Mesh(starGeo, starMat);
+  starMesh.position.set(center.x, center.y, center.z);
+  scene.add(starMesh);
+  
+  const light = new THREE.PointLight(starColor, 1.5, SYSTEM_GRID * 2);
+  light.position.copy(starMesh.position);
+  scene.add(light);
+  
+  const starMass = starRadius * starRadius * 0.5;
+  celestialBodies.push({ type: 'star', mesh: starMesh, radius: starRadius, mass: starMass, pos: starMesh.position });
+  
+  const numPlanets = Math.floor(random(s++) * 4) + 1;
+  for(let p=0; p<numPlanets; p++) {
+    const pRad = 80 + random(s++) * 300;
+    const dist = starRadius + 1500 + random(s++) * 8000;
+    const angle = random(s++) * Math.PI * 2;
+    const pGeo = new THREE.SphereGeometry(pRad, 32, 32);
+    
+    // Deform terrain slightly
+    const posAttr = pGeo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+        const v = new THREE.Vector3().fromBufferAttribute(posAttr, i);
+        const n = random(s++ + i%100) * 0.05;
+        v.multiplyScalar(1 + n);
+        posAttr.setXYZ(i, v.x, v.y, v.z);
+    }
+    pGeo.computeVertexNormals();
+
+    const pColor = new THREE.Color().setHSL(random(s++), 0.5, 0.4);
+    const pMat = new THREE.MeshPhongMaterial({ color: pColor, flatShading: true });
+    const pMesh = new THREE.Mesh(pGeo, pMat);
+    scene.add(pMesh);
+    
+    const angularSpeed = Math.sqrt((0.005 * starMass) / (dist*dist*dist));
+    
+    celestialBodies.push({
+      type: 'planet', mesh: pMesh, radius: pRad, mass: pRad * pRad * 0.1,
+      pos: new THREE.Vector3(), vel: new THREE.Vector3(),
+      dist: dist, angle: angle, angularSpeed: angularSpeed, parent: starMesh.position,
+      baseSpeed: angularSpeed
+    });
+  }
+}
+
+function checkChunks() {
+  const cx = Math.floor(ship.pos.x / SYSTEM_GRID);
+  const cy = Math.floor(ship.pos.y / SYSTEM_GRID);
+  const cz = Math.floor(ship.pos.z / SYSTEM_GRID);
+  for(let i = -1; i <= 1; i++) {
+    for(let j = -1; j <= 1; j++) {
+      for(let k = -1; k <= 1; k++) {
+        const key = `${cx+i},${cy+j},${cz+k}`;
+        if (!generatedSystems.has(key)) {
+          generatedSystems.add(key);
+          createSystem(cx+i, cy+j, cz+k);
+        }
+      }
+    }
+  }
+}
+
+// Initial Generation
+createSystem(0,0,0);
+generatedSystems.add("0,0,0");
+const firstPlanet = celestialBodies.find(b => b.type === 'planet');
+if(firstPlanet) {
+  // Update its position once
+  firstPlanet.pos.set(
+    firstPlanet.parent.x + Math.cos(firstPlanet.angle) * firstPlanet.dist,
+    firstPlanet.parent.y,
+    firstPlanet.parent.z + Math.sin(firstPlanet.angle) * firstPlanet.dist
+  );
+  ship.pos.copy(firstPlanet.pos);
+  ship.pos.y += firstPlanet.radius + 15;
+  // Give initial orbital velocity
+  const vMag = firstPlanet.angularSpeed * firstPlanet.dist;
+  ship.vel.set(-Math.sin(firstPlanet.angle) * vMag, 0, Math.cos(firstPlanet.angle) * vMag);
+}
+
+function die() {
+  ship.hp = ship.maxHp;
+  ship.fuel = ship.maxFuel;
+  ship.energy = ship.maxEnergy;
+  const targetPlanet = celestialBodies.find(b => b.type === 'planet') || celestialBodies[0];
+  ship.pos.copy(targetPlanet.pos).add(new THREE.Vector3(0, targetPlanet.radius + 20, 0));
+  ship.vel.set(0,0,0);
+  ship.angVel.set(0,0,0);
+  timeWarp = 1;
+  showMessage("RESPAWNED");
+}
+
+let lastTime = performance.now();
+const drillLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-40)]);
+const drillLineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+const drillLine = new THREE.Line(drillLineGeo, drillLineMat);
+scene.add(drillLine);
+drillLine.visible = false;
+
+function drawMap() {
+  const mapCanvas = document.getElementById('minimap');
+  if(mapCanvas.style.display === 'none') return;
+  const ctx = mapCanvas.getContext('2d');
+  ctx.clearRect(0,0,200,200);
+  const scale = 200 / (SYSTEM_GRID * 1.5);
+  const cx = ship.pos.x;
+  const cz = ship.pos.z;
+  
+  celestialBodies.forEach(b => {
+    const mx = 100 + (b.pos.x - cx) * scale;
+    const my = 100 + (b.pos.z - cz) * scale;
+    if(mx>0&&mx<200&&my>0&&my<200) {
+      ctx.fillStyle = b.type==='star' ? '#ffa' : '#aaf';
+      ctx.beginPath(); ctx.arc(mx, my, b.type==='star'?4:2, 0, Math.PI*2); ctx.fill();
+    }
+  });
+  ctx.fillStyle = '#0f0';
+  ctx.beginPath(); ctx.arc(100, 100, 2, 0, Math.PI*2); ctx.fill();
+}
+
+function update() {
+  const now = performance.now();
+  let dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+  
+  dt *= timeWarp;
+  const gravBase = parseFloat(document.getElementById('grav-slider').value) * 0.005;
+
+  ship.energy = Math.min(ship.maxEnergy, ship.energy + 2 * dt);
+  ship.fuel = Math.min(ship.maxFuel, ship.fuel + 0.1 * dt); // slow regen
+
+  // Celestial physics (parametric orbits)
+  celestialBodies.forEach(b => {
+    if(b.type === 'planet') {
+      b.angularSpeed = b.baseSpeed * (gravBase / 0.25); // scaling orbit speed with gravity slider
+      b.angle += b.angularSpeed * dt;
+      b.pos.set(
+        b.parent.x + Math.cos(b.angle) * b.dist,
+        b.parent.y,
+        b.parent.z + Math.sin(b.angle) * b.dist
+      );
+      b.vel.set(
+        -Math.sin(b.angle) * b.angularSpeed * b.dist,
+        0,
+        Math.cos(b.angle) * b.angularSpeed * b.dist
+      );
+      b.mesh.position.copy(b.pos);
+      b.mesh.rotation.y += 0.1 * dt;
+    }
+  });
+
+  // Ship controls
+  if(ship.fuel > 0 && timeWarp === 1) { // No manual control during time warp to avoid physics bugs
+    let thrusting = false;
+    const thrustVec = new THREE.Vector3(0,0,0);
+    if(inp.fwd) { thrustVec.z -= 1; thrusting = true; }
+    if(inp.bwd) { thrustVec.z += 1; thrusting = true; }
+    if(thrusting) {
+      thrustVec.normalize().multiplyScalar(40 * dt);
+      thrustVec.applyQuaternion(ship.quat);
+      ship.vel.add(thrustVec);
+      ship.fuel -= 5 * dt;
+      engineGlow.opacity = 1;
+    } else {
+      engineGlow.opacity = 0;
+    }
+
+    let rotating = false;
+    const rotVec = new THREE.Vector3(0,0,0);
+    if(inp.pitchU) { rotVec.x += 1; rotating = true; }
+    if(inp.pitchD) { rotVec.x -= 1; rotating = true; }
+    if(inp.yawL) { rotVec.y += 1; rotating = true; }
+    if(inp.yawR) { rotVec.y -= 1; rotating = true; }
+    if(inp.rollL) { rotVec.z += 1; rotating = true; }
+    if(inp.rollR) { rotVec.z -= 1; rotating = true; }
+    
+    if(rotating && ship.energy > 0) {
+      rotVec.multiplyScalar(2 * dt);
+      ship.angVel.add(rotVec);
+      ship.energy -= 2 * dt;
+    }
+  } else {
+    engineGlow.opacity = 0;
+  }
+
+  ship.angVel.multiplyScalar(0.95);
+  if(ship.angVel.lengthSq() > 0.0001) {
+    const dq = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      ship.angVel.x * dt, ship.angVel.y * dt, ship.angVel.z * dt, 'XYZ'
+    ));
+    ship.quat.multiply(dq);
+    ship.quat.normalize();
+  }
+
+  // Gravity
+  let nearBody = null; let minDist = Infinity;
+  celestialBodies.forEach(b => {
+    const toBody = new THREE.Vector3().subVectors(b.pos, ship.pos);
+    const distSq = toBody.lengthSq();
+    const dist = Math.sqrt(distSq);
+    if(dist < minDist) { minDist = dist; nearBody = b; }
+    
+    const gRange = b.type === 'star' ? SYSTEM_GRID : b.radius * 20;
+    if(dist < gRange && dist > b.radius) {
+      const force = (gravBase * b.mass) / distSq;
+      ship.vel.add(toBody.normalize().multiplyScalar(force * dt));
+    }
+  });
+
+  // Collision & Docking
+  let landed = false;
+  if(nearBody && minDist < nearBody.radius + 4) {
+    const toShip = new THREE.Vector3().subVectors(ship.pos, nearBody.pos).normalize();
+    const overlap = (nearBody.radius + 4) - minDist;
+    ship.pos.add(toShip.clone().multiplyScalar(overlap)); // push out
+    
+    const relVel = new THREE.Vector3().subVectors(ship.vel, nearBody.vel || new THREE.Vector3());
+    const speed = relVel.length();
+    
+    if(speed > 50 && timeWarp === 1) {
+      ship.hp -= speed * 0.1;
+      showMessage("COLLISION WARNING");
+      if(ship.hp <= 0) die();
+    }
+    
+    if(speed < 10 && timeWarp === 1 && !inp.fwd && !inp.bwd) {
+      // Landed
+      landed = true;
+      ship.vel.copy(nearBody.vel || new THREE.Vector3());
+      ship.angVel.set(0,0,0);
+      
+      // Auto orient upright
+      const up = new THREE.Vector3(0,1,0).applyQuaternion(ship.quat);
+      const cross = new THREE.Vector3().crossVectors(up, toShip);
+      const angle = Math.asin(Math.min(1, Math.max(-1, cross.length())));
+      if(angle > 0.01) {
+        cross.normalize();
+        const rot = new THREE.Quaternion().setFromAxisAngle(cross, angle * 0.1);
+        ship.quat.premultiply(rot);
+      }
+    } else if (speed >= 10) {
+      // Bounce
+      ship.vel.reflect(toShip).multiplyScalar(0.5);
+    }
+  }
+
+  if(timeWarp === 1) ship.pos.add(ship.vel.clone().multiplyScalar(dt));
+  else {
+    // During time warp, if near a planet and slow, lock to orbit position roughly
+    if(landed && nearBody) {
+       const offset = ship.pos.clone().sub(nearBody.pos);
+       ship.pos.copy(nearBody.pos).add(offset);
+    } else {
+       ship.pos.add(ship.vel.clone().multiplyScalar(dt));
+    }
+  }
+
+  // Drill
+  drillLine.visible = false;
+  if(inp.drill && timeWarp === 1 && nearBody && minDist < nearBody.radius + 20 && ship.energy > 5) {
+    const downVec = new THREE.Vector3(0,-1,0).applyQuaternion(ship.quat);
+    const toBody = new THREE.Vector3().subVectors(nearBody.pos, ship.pos).normalize();
+    if(downVec.dot(toBody) > 0.5) { // pointing towards body
+      ship.energy -= 10 * dt;
+      ship.rocks += 8 * dt;
+      drillLine.position.copy(ship.pos);
+      drillLine.quaternion.copy(ship.quat);
+      drillLine.visible = true;
+    }
+  }
+
+  checkChunks();
+
+  // Visual updates
+  shipGroup.position.copy(ship.pos);
+  shipGroup.quaternion.copy(ship.quat);
+  
+  const vLineStart = ship.pos.clone().add(new THREE.Vector3(0, -2, 0).applyQuaternion(ship.quat));
+  vectorLine.geometry.setFromPoints([vLineStart, vLineStart.clone().add(ship.vel.clone().multiplyScalar(0.5))]);
+
+  // Camera follow
+  const idealOffset = new THREE.Vector3(0, 8, 25).applyQuaternion(ship.quat).add(ship.pos);
+  camera.position.lerp(idealOffset, 0.1);
+  const idealLookAt = new THREE.Vector3(0, 0, -50).applyQuaternion(ship.quat).add(ship.pos);
+  camera.lookAt(idealLookAt);
+
+  starfield.position.copy(camera.position);
+
+  // UI updates
+  document.getElementById('hp-bar').style.width = `${Math.max(0, (ship.hp/ship.maxHp)*100)}%`;
+  document.getElementById('fuel-bar').style.width = `${Math.max(0, (ship.fuel/ship.maxFuel)*100)}%`;
+  document.getElementById('energy-bar').style.width = `${Math.max(0, (ship.energy/ship.maxEnergy)*100)}%`;
+  document.getElementById('rock-val').innerText = Math.floor(ship.rocks);
+
+  drawMap();
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(update);
+}
+
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
