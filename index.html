@@ -110,8 +110,9 @@ shipGroup.add(engineGlow);
 
 // Vector line
 const vecGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-20)]);
-const vecMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+const vecMat = new THREE.LineDashedMaterial({ color: 0x00ff00, dashSize: 2, gapSize: 2 });
 const vectorLine = new THREE.Line(vecGeo, vecMat);
+vectorLine.computeLineDistances();
 scene.add(vectorLine);
 
 scene.add(shipGroup);
@@ -130,6 +131,38 @@ const ship = {
 
 const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0 };
 let timeWarp = 1;
+
+let camRotX = -Math.PI / 6;
+let camRotY = 0;
+let isDragging = false;
+let prevX = 0, prevY = 0;
+
+document.getElementById('game-container').addEventListener('pointerdown', e => {
+  if (e.target !== renderer.domElement) return;
+  isDragging = true;
+  prevX = e.clientX;
+  prevY = e.clientY;
+});
+window.addEventListener('pointermove', e => {
+  if (isDragging) {
+    const dx = e.clientX - prevX;
+    const dy = e.clientY - prevY;
+    camRotY -= dx * 0.005;
+    camRotX -= dy * 0.005;
+    camRotX = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, camRotX));
+    prevX = e.clientX;
+    prevY = e.clientY;
+  }
+});
+window.addEventListener('pointerup', () => isDragging = false);
+window.addEventListener('pointercancel', () => isDragging = false);
+
+const cameraRig = new THREE.Group();
+const cameraPivot = new THREE.Group();
+cameraRig.add(cameraPivot);
+cameraPivot.add(camera);
+scene.add(cameraRig);
+camera.position.set(0, 0, 30);
 
 // Controls
 window.addEventListener('keydown', e => {
@@ -513,14 +546,16 @@ function update() {
   
   const vLineStart = ship.pos.clone().add(new THREE.Vector3(0, -2, 0).applyQuaternion(ship.quat));
   vectorLine.geometry.setFromPoints([vLineStart, vLineStart.clone().add(ship.vel.clone().multiplyScalar(0.5))]);
+  vectorLine.computeLineDistances();
 
   // Camera follow
-  const idealOffset = new THREE.Vector3(0, 8, 25).applyQuaternion(ship.quat).add(ship.pos);
-  camera.position.lerp(idealOffset, 0.1);
-  const idealLookAt = new THREE.Vector3(0, 0, -50).applyQuaternion(ship.quat).add(ship.pos);
-  camera.lookAt(idealLookAt);
+  cameraRig.position.copy(ship.pos);
+  cameraRig.quaternion.copy(ship.quat);
+  cameraPivot.rotation.set(camRotX, camRotY, 0, 'YXZ');
 
-  starfield.position.copy(camera.position);
+  const camWorldPos = new THREE.Vector3();
+  camera.getWorldPosition(camWorldPos);
+  starfield.position.copy(camWorldPos);
 
   // UI updates
   document.getElementById('hp-bar').style.width = `${Math.max(0, (ship.hp/ship.maxHp)*100)}%`;
