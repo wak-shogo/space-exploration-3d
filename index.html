@@ -430,7 +430,7 @@ function getSystemCenter(cx, cy, cz) {
 
 const textureLoader = new THREE.TextureLoader();
 let starGlowTexture = null;
-let starHazeGeometry = null;
+let lastGenerationProcess = 0;
 
 function getStarGlowTexture() {
   if(starGlowTexture) return starGlowTexture;
@@ -447,12 +447,6 @@ function getStarGlowTexture() {
   ctx.fillRect(0, 0, 256, 256);
   starGlowTexture = new THREE.CanvasTexture(canvas);
   return starGlowTexture;
-}
-
-function getStarHazeGeometry() {
-  if(starHazeGeometry) return starHazeGeometry;
-  starHazeGeometry = new THREE.SphereGeometry(SYSTEM_GRID * 0.55, 24, 16);
-  return starHazeGeometry;
 }
 
 function createSystem(cx, cy, cz) {
@@ -478,20 +472,8 @@ function createSystem(cx, cy, cz) {
   });
   const starGlow = new THREE.Sprite(glowMat);
   starGlow.position.copy(starMesh.position);
-  starGlow.scale.set(starRadius * 8, starRadius * 8, 1);
+  starGlow.scale.set(SYSTEM_GRID * 0.7, SYSTEM_GRID * 0.7, 1);
   scene.add(starGlow);
-
-  const hazeMat = new THREE.MeshBasicMaterial({
-    color: starColor,
-    transparent: true,
-    opacity: 0.055,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-  });
-  const starHaze = new THREE.Mesh(getStarHazeGeometry(), hazeMat);
-  starHaze.position.copy(starMesh.position);
-  scene.add(starHaze);
   
   const light = new THREE.PointLight(starColor, 2.15, SYSTEM_GRID * 2.4);
   light.position.copy(starMesh.position);
@@ -620,7 +602,10 @@ function enqueueSystem(cx, cy, cz, priority=false) {
   else generationQueue.push(item);
 }
 
-function processGenerationQueue(maxSystems=2, maxMs=6) {
+function processGenerationQueue(maxSystems=1, maxMs=3) {
+  const now = performance.now();
+  if(now - lastGenerationProcess < 220) return;
+  lastGenerationProcess = now;
   const start = performance.now();
   let made = 0;
   const cx = Math.floor(ship.pos.x / SYSTEM_GRID);
@@ -646,27 +631,6 @@ function checkChunks() {
     for(let j = -1; j <= 1; j++) {
       for(let k = -1; k <= 1; k++) {
         enqueueSystem(cx+i, cy+j, cz+k, Math.abs(i) + Math.abs(j) + Math.abs(k) <= 1);
-      }
-    }
-  }
-
-  const travelDir = ship.vel.lengthSq() > 25
-    ? ship.vel.clone().normalize()
-    : new THREE.Vector3(0,0,-1).applyQuaternion(ship.quat);
-  for(let step=2; step<=5; step++) {
-    const p = ship.pos.clone().add(travelDir.clone().multiplyScalar(SYSTEM_GRID * step));
-    const fx = Math.floor(p.x / SYSTEM_GRID);
-    const fy = Math.floor(p.y / SYSTEM_GRID);
-    const fz = Math.floor(p.z / SYSTEM_GRID);
-    enqueueSystem(fx, fy, fz, true);
-    if(step <= 3) {
-      const side = new THREE.Vector3(-travelDir.z, 0, travelDir.x);
-      if(side.lengthSq() > 0.01) {
-        side.normalize();
-        [-1, 1].forEach(sign => {
-          const sp = p.clone().add(side.clone().multiplyScalar(sign * SYSTEM_GRID * 0.65));
-          enqueueSystem(Math.floor(sp.x / SYSTEM_GRID), Math.floor(sp.y / SYSTEM_GRID), Math.floor(sp.z / SYSTEM_GRID), false);
-        });
       }
     }
   }
@@ -1070,7 +1034,7 @@ function update() {
   }
 
   checkChunks();
-  processGenerationQueue(timeWarp > 1 ? 1 : 2, timeWarp > 1 ? 4 : 7);
+  processGenerationQueue(1, timeWarp > 1 ? 2 : 3);
 
   // Visual updates
   shipGroup.position.copy(ship.pos);
