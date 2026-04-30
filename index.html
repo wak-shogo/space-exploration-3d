@@ -347,6 +347,9 @@ function playCollectSound(type) {
 function playLaserSound() {
   playTone(980, 0.16, 'sawtooth', 0.07, 220);
 }
+function playEnemyLaserSound() {
+  playTone(520, 0.14, 'sawtooth', 0.045, 980);
+}
 function playHitSound() {
   playTone(130, 0.18, 'square', 0.08, 55);
 }
@@ -401,7 +404,9 @@ const celestialBodies = [];
 const enemies = [];
 const drops = [];
 const lasers = [];
+const enemyBolts = [];
 const spaceResources = [];
+const generationQueue = [];
 const generatedSystems = new Set();
 const SYSTEM_GRID = 30000;
 const RESOURCE_PICKUP_RANGE = 120;
@@ -425,6 +430,7 @@ function getSystemCenter(cx, cy, cz) {
 
 const textureLoader = new THREE.TextureLoader();
 let starGlowTexture = null;
+let starHazeGeometry = null;
 
 function getStarGlowTexture() {
   if(starGlowTexture) return starGlowTexture;
@@ -441,6 +447,12 @@ function getStarGlowTexture() {
   ctx.fillRect(0, 0, 256, 256);
   starGlowTexture = new THREE.CanvasTexture(canvas);
   return starGlowTexture;
+}
+
+function getStarHazeGeometry() {
+  if(starHazeGeometry) return starHazeGeometry;
+  starHazeGeometry = new THREE.SphereGeometry(SYSTEM_GRID * 0.55, 24, 16);
+  return starHazeGeometry;
 }
 
 function createSystem(cx, cy, cz) {
@@ -468,6 +480,18 @@ function createSystem(cx, cy, cz) {
   starGlow.position.copy(starMesh.position);
   starGlow.scale.set(starRadius * 8, starRadius * 8, 1);
   scene.add(starGlow);
+
+  const hazeMat = new THREE.MeshBasicMaterial({
+    color: starColor,
+    transparent: true,
+    opacity: 0.055,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const starHaze = new THREE.Mesh(getStarHazeGeometry(), hazeMat);
+  starHaze.position.copy(starMesh.position);
+  scene.add(starHaze);
   
   const light = new THREE.PointLight(starColor, 2.15, SYSTEM_GRID * 2.4);
   light.position.copy(starMesh.position);
@@ -523,7 +547,12 @@ function createSystem(cx, cy, cz) {
         const eMesh = new THREE.Mesh(eGeo, eMat);
         eMesh.position.copy(ePos);
         scene.add(eMesh);
-        enemies.push({ mesh: eMesh, pos: ePos, vel: new THREE.Vector3(), hp: 20 });
+        const shooter = random(s++) > 0.55;
+        if(shooter) {
+          eMat.color.set(0xffaa00);
+          eMesh.scale.set(1.25, 1.25, 1.25);
+        }
+        enemies.push({ mesh: eMesh, pos: ePos, vel: new THREE.Vector3(), hp: shooter ? 28 : 20, shooter: shooter, shootCooldown: 1 + random(s++) * 2 });
      }
   }
 
@@ -582,6 +611,33 @@ function createSystem(cx, cy, cz) {
   }
 }
 
+function enqueueSystem(cx, cy, cz, priority=false) {
+  const key = `${cx},${cy},${cz}`;
+  if (generatedSystems.has(key)) return;
+  generatedSystems.add(key);
+  const item = { cx, cy, cz };
+  if(priority) generationQueue.unshift(item);
+  else generationQueue.push(item);
+}
+
+function processGenerationQueue(maxSystems=2, maxMs=6) {
+  const start = performance.now();
+  let made = 0;
+  const cx = Math.floor(ship.pos.x / SYSTEM_GRID);
+  const cy = Math.floor(ship.pos.y / SYSTEM_GRID);
+  const cz = Math.floor(ship.pos.z / SYSTEM_GRID);
+  generationQueue.sort((a, b) => {
+    const ad = (a.cx-cx)*(a.cx-cx) + (a.cy-cy)*(a.cy-cy) + (a.cz-cz)*(a.cz-cz);
+    const bd = (b.cx-cx)*(b.cx-cx) + (b.cy-cy)*(b.cy-cy) + (b.cz-cz)*(b.cz-cz);
+    return ad - bd;
+  });
+  while(generationQueue.length && made < maxSystems && performance.now() - start < maxMs) {
+    const item = generationQueue.shift();
+    createSystem(item.cx, item.cy, item.cz);
+    made++;
+  }
+}
+
 function checkChunks() {
   const cx = Math.floor(ship.pos.x / SYSTEM_GRID);
   const cy = Math.floor(ship.pos.y / SYSTEM_GRID);
@@ -589,11 +645,28 @@ function checkChunks() {
   for(let i = -1; i <= 1; i++) {
     for(let j = -1; j <= 1; j++) {
       for(let k = -1; k <= 1; k++) {
-        const key = `${cx+i},${cy+j},${cz+k}`;
-        if (!generatedSystems.has(key)) {
-          generatedSystems.add(key);
-          createSystem(cx+i, cy+j, cz+k);
-        }
+        enqueueSystem(cx+i, cy+j, cz+k, Math.abs(i) + Math.abs(j) + Math.abs(k) <= 1);
+      }
+    }
+  }
+
+  const travelDir = ship.vel.lengthSq() > 25
+    ? ship.vel.clone().normalize()
+    : new THREE.Vector3(0,0,-1).applyQuaternion(ship.quat);
+  for(let step=2; step<=5; step++) {
+    const p = ship.pos.clone().add(travelDir.clone().multiplyScalar(SYSTEM_GRID * step));
+    const fx = Math.floor(p.x / SYSTEM_GRID);
+    const fy = Math.floor(p.y / SYSTEM_GRID);
+    const fz = Math.floor(p.z / SYSTEM_GRID);
+    enqueueSystem(fx, fy, fz, true);
+    if(step <= 3) {
+      const side = new THREE.Vector3(-travelDir.z, 0, travelDir.x);
+      if(side.lengthSq() > 0.01) {
+        side.normalize();
+        [-1, 1].forEach(sign => {
+          const sp = p.clone().add(side.clone().multiplyScalar(sign * SYSTEM_GRID * 0.65));
+          enqueueSystem(Math.floor(sp.x / SYSTEM_GRID), Math.floor(sp.y / SYSTEM_GRID), Math.floor(sp.z / SYSTEM_GRID), false);
+        });
       }
     }
   }
@@ -721,6 +794,27 @@ function update() {
      }
   }
 
+  // Enemy green bolts
+  for(let i=enemyBolts.length-1; i>=0; i--) {
+     const b = enemyBolts[i];
+     b.pos.add(b.dir.clone().multiplyScalar(720 * dt));
+     b.mesh.position.copy(b.pos);
+     b.life -= dt;
+     if(ship.pos.distanceTo(b.pos) < 18 && timeWarp === 1) {
+        ship.hp -= 16;
+        showMessage("LASER HIT");
+        playHitSound();
+        scene.remove(b.mesh);
+        enemyBolts.splice(i, 1);
+        if(ship.hp <= 0) die();
+        continue;
+     }
+     if(b.life <= 0) {
+        scene.remove(b.mesh);
+        enemyBolts.splice(i, 1);
+     }
+  }
+
   // Drops collection
   for(let i=drops.length-1; i>=0; i--) {
      let d = drops[i];
@@ -773,6 +867,22 @@ function update() {
            e.pos.add(e.vel.clone().multiplyScalar(dt));
            e.mesh.position.copy(e.pos);
            e.mesh.lookAt(ship.pos);
+           if(e.shooter && dist < 4500) {
+              e.shootCooldown -= dt;
+              if(e.shootCooldown <= 0) {
+                 const dir = new THREE.Vector3().subVectors(ship.pos, e.pos).normalize();
+                 const boltGeo = new THREE.CylinderGeometry(0.35, 0.35, 55, 6);
+                 boltGeo.rotateX(Math.PI/2);
+                 const boltMat = new THREE.MeshBasicMaterial({color: 0x44ff66, transparent: true, opacity: 0.9});
+                 const boltMesh = new THREE.Mesh(boltGeo, boltMat);
+                 boltMesh.position.copy(e.pos);
+                 boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+                 scene.add(boltMesh);
+                 enemyBolts.push({ mesh: boltMesh, pos: e.pos.clone(), dir: dir, life: 4 });
+                 e.shootCooldown = 1.4 + Math.random() * 1.8;
+                 playEnemyLaserSound();
+              }
+           }
            if(dist < 10) {
               ship.hp -= 20 * dt;
               showMessage("ENEMY ATTACK");
@@ -960,6 +1070,7 @@ function update() {
   }
 
   checkChunks();
+  processGenerationQueue(timeWarp > 1 ? 1 : 2, timeWarp > 1 ? 4 : 7);
 
   // Visual updates
   shipGroup.position.copy(ship.pos);
