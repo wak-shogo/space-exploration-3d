@@ -144,7 +144,6 @@ function updateShipModel() {
      solarPanelGroup.add(panelL, panelR);
   }
 }
-updateShipModel();
 scene.add(shipGroup);
 
 // Ship Physics
@@ -159,6 +158,7 @@ const ship = {
   rocks: 0, iron: 0, titanium: 0, iridium: 0,
   solarLevel: 1, weaponLevel: 1, mineRate: 1, thrusterLevel: 1
 };
+updateShipModel();
 
 const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0, shoot:0, strL:0, strR:0 };
 let timeWarp = 1;
@@ -211,7 +211,7 @@ window.addEventListener('keydown', e => {
   if(e.code==='KeyC') inp.strR=1;
   if(e.code==='KeyM') toggleMap();
   if(e.code==='KeyT') toggleTime();
-  if(e.code==='KeyC') toggleCraft();
+  if(e.code==='KeyV') toggleCraft();
 });
 window.addEventListener('keyup', e => {
   if(e.code==='KeyW') inp.pitchD=0;
@@ -235,7 +235,7 @@ window.addEventListener('resize', () => {
 
 function toggleMap() {
   const m = document.getElementById('minimap');
-  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  m.style.display = getComputedStyle(m).display === 'none' ? 'block' : 'none';
 }
 function toggleTime() {
   timeWarp = timeWarp === 1 ? 10 : (timeWarp === 10 ? 100 : 1);
@@ -244,7 +244,7 @@ function toggleTime() {
 }
 function toggleCraft() {
   const c = document.getElementById('craft-menu');
-  c.style.display = c.style.display === 'none' ? 'block' : 'none';
+  c.style.display = getComputedStyle(c).display === 'none' ? 'block' : 'none';
 }
 
 document.getElementById('btn-map').onclick = toggleMap;
@@ -257,6 +257,113 @@ function showMessage(text) {
   m.style.opacity = 1;
   setTimeout(() => m.style.opacity = 0, 2000);
 }
+
+let audioCtx = null;
+let audioMaster = null;
+let ambientGain = null;
+let engineGain = null;
+let drillGain = null;
+let lastMineSound = 0;
+let lastDamageSound = 0;
+
+function unlockAudio() {
+  if(audioCtx) {
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return;
+  }
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if(!AudioContextClass) return;
+  audioCtx = new AudioContextClass();
+  audioMaster = audioCtx.createGain();
+  audioMaster.gain.value = 0.18;
+  audioMaster.connect(audioCtx.destination);
+
+  ambientGain = audioCtx.createGain();
+  ambientGain.gain.value = 0.018;
+  ambientGain.connect(audioMaster);
+  const ambientFilter = audioCtx.createBiquadFilter();
+  ambientFilter.type = 'lowpass';
+  ambientFilter.frequency.value = 420;
+  ambientFilter.connect(ambientGain);
+  [55, 82].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    osc.type = i === 0 ? 'sine' : 'triangle';
+    osc.frequency.value = freq;
+    osc.connect(ambientFilter);
+    osc.start();
+  });
+
+  engineGain = audioCtx.createGain();
+  engineGain.gain.value = 0;
+  engineGain.connect(audioMaster);
+  const engineOsc = audioCtx.createOscillator();
+  engineOsc.type = 'sawtooth';
+  engineOsc.frequency.value = 72;
+  const engineFilter = audioCtx.createBiquadFilter();
+  engineFilter.type = 'lowpass';
+  engineFilter.frequency.value = 260;
+  engineOsc.connect(engineFilter);
+  engineFilter.connect(engineGain);
+  engineOsc.start();
+
+  drillGain = audioCtx.createGain();
+  drillGain.gain.value = 0;
+  drillGain.connect(audioMaster);
+  const drillOsc = audioCtx.createOscillator();
+  drillOsc.type = 'square';
+  drillOsc.frequency.value = 95;
+  const drillFilter = audioCtx.createBiquadFilter();
+  drillFilter.type = 'bandpass';
+  drillFilter.frequency.value = 780;
+  drillOsc.connect(drillFilter);
+  drillFilter.connect(drillGain);
+  drillOsc.start();
+}
+
+function playTone(freq, duration, type='sine', volume=0.08, endFreq=null) {
+  if(!audioCtx || !audioMaster) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+  if(endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), now + duration);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(audioMaster);
+  osc.start(now);
+  osc.stop(now + duration + 0.03);
+}
+
+function playCollectSound(type) {
+  playTone(type === 'TITANIUM' ? 880 : 660, 0.12, 'triangle', 0.06, 1320);
+}
+function playLaserSound() {
+  playTone(980, 0.16, 'sawtooth', 0.07, 220);
+}
+function playHitSound() {
+  playTone(130, 0.18, 'square', 0.08, 55);
+}
+function playMineSound() {
+  const now = performance.now();
+  if(now - lastMineSound > 180) {
+    lastMineSound = now;
+    playTone(180 + Math.random() * 70, 0.06, 'square', 0.035, 90);
+  }
+}
+function updateAudio(engineActive, drillActive) {
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  engineGain.gain.cancelScheduledValues(now);
+  engineGain.gain.linearRampToValueAtTime(engineActive ? 0.12 : 0.001, now + 0.08);
+  drillGain.gain.cancelScheduledValues(now);
+  drillGain.gain.linearRampToValueAtTime(drillActive ? 0.08 : 0.001, now + 0.05);
+}
+
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
 
 function craft(type) {
   if(type === 'repair' && ship.rocks >= 10) {
@@ -290,8 +397,10 @@ const celestialBodies = [];
 const enemies = [];
 const drops = [];
 const lasers = [];
+const spaceResources = [];
 const generatedSystems = new Set();
 const SYSTEM_GRID = 30000;
+const RESOURCE_PICKUP_RANGE = 120;
 
 function hash(x, y, z) {
   let h = (x|0) * 374761393 + (y|0) * 668265263 + (z|0) * 374761393;
@@ -331,6 +440,29 @@ function createSystem(cx, cy, cz) {
   
   const starMass = starRadius * starRadius * 0.5;
   celestialBodies.push({ type: 'star', mesh: starMesh, radius: starRadius, mass: starMass, pos: starMesh.position });
+
+  const spaceResourceCount = 45 + Math.floor(random(s++) * 35);
+  for(let i=0; i<spaceResourceCount; i++) {
+     const rType = random(s++) > 0.45 ? 'IRON' : 'TITANIUM';
+     const rColor = rType === 'TITANIUM' ? 0x00aaff : 0xb8b8b8;
+     const rSize = 3 + random(s++) * 4;
+     const rGeo = new THREE.DodecahedronGeometry(rSize, 0);
+     const rMat = new THREE.MeshPhongMaterial({ color: rColor, flatShading: true });
+     const rMesh = new THREE.Mesh(rGeo, rMat);
+     const rPos = new THREE.Vector3(
+        center.x + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
+        center.y + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
+        center.z + (random(s++) - 0.5) * SYSTEM_GRID * 0.8
+     );
+     rMesh.position.copy(rPos);
+     scene.add(rMesh);
+     spaceResources.push({
+        mesh: rMesh,
+        pos: rPos,
+        vel: new THREE.Vector3((random(s++) - 0.5) * 8, (random(s++) - 0.5) * 8, (random(s++) - 0.5) * 8),
+        type: rType
+     });
+  }
   
   if(random(s++) > 0.5 && (cx!==0||cy!==0||cz!==0)) {
      const numEnemies = Math.floor(random(s++) * 3) + 2;
@@ -384,7 +516,7 @@ function createSystem(cx, cy, cz) {
            pRad * Math.sin(phi) * Math.sin(theta),
            pRad * Math.cos(phi)
        );
-       const resSize = rType === 'TITANIUM' ? 6 : 8;
+       const resSize = rType === 'TITANIUM' ? 24 : 32;
        const resColor = rType === 'TITANIUM' ? 0x00aaff : 0xaaaaaa;
        const resGeo = new THREE.BoxGeometry(resSize, resSize, resSize);
        const resMat = new THREE.MeshPhongMaterial({ color: resColor });
@@ -489,6 +621,8 @@ function update() {
   
   dt *= timeWarp;
   const gravBase = parseFloat(document.getElementById('grav-slider').value) * 0.005;
+  let audioEngineActive = false;
+  let audioDrillActive = false;
 
   ship.energy = Math.min(ship.maxEnergy, ship.energy + (1 + (ship.solarLevel||1)) * dt);
   ship.fuel = Math.min(ship.maxFuel, ship.fuel + 0.1 * dt); // slow regen
@@ -497,6 +631,7 @@ function update() {
   if(inp.shoot && timeWarp === 1 && ship.energy > 5) {
      ship.energy -= 20; // burst cost
      inp.shoot = 0; // semi-auto
+     playLaserSound();
      const lGeo = new THREE.CylinderGeometry(0.2, 0.2, 20, 4);
      lGeo.rotateX(Math.PI/2);
      const lMat = new THREE.MeshBasicMaterial({color: 0x00ffff});
@@ -550,6 +685,34 @@ function update() {
         scene.remove(d.mesh);
         drops.splice(i, 1);
         showMessage("IRIDIUM +1");
+        playCollectSound('IRIDIUM');
+     }
+  }
+
+  // Space resource collection
+  for(let i=spaceResources.length-1; i>=0; i--) {
+     const r = spaceResources[i];
+     const dist = ship.pos.distanceTo(r.pos);
+     r.mesh.rotation.x += dt * 0.7;
+     r.mesh.rotation.y += dt * 1.1;
+     if(dist < RESOURCE_PICKUP_RANGE && timeWarp === 1) {
+        const pull = new THREE.Vector3().subVectors(ship.pos, r.pos).normalize().multiplyScalar((220 + (RESOURCE_PICKUP_RANGE - dist) * 4) * dt);
+        r.vel.add(pull);
+        if(r.vel.lengthSq() > 90000) r.vel.normalize().multiplyScalar(300);
+     }
+     r.pos.add(r.vel.clone().multiplyScalar(dt));
+     r.mesh.position.copy(r.pos);
+     if(dist < 12) {
+        if(r.type === 'TITANIUM') {
+           ship.titanium += 1;
+           showMessage("TITAN +1");
+        } else {
+           ship.iron += 1;
+           showMessage("IRON +1");
+        }
+        playCollectSound(r.type);
+        scene.remove(r.mesh);
+        spaceResources.splice(i, 1);
      }
   }
 
@@ -567,6 +730,10 @@ function update() {
            if(dist < 10) {
               ship.hp -= 20 * dt;
               showMessage("ENEMY ATTACK");
+              if(performance.now() - lastDamageSound > 500) {
+                lastDamageSound = performance.now();
+                playHitSound();
+              }
               if(ship.hp <= 0) die();
            }
         }
@@ -606,9 +773,10 @@ function update() {
       thrustVec.applyQuaternion(ship.quat);
       ship.vel.add(thrustVec);
       ship.fuel -= 5 * dt;
-      engineGlow.opacity = 1;
+      engineGlow.material.opacity = 1;
+      audioEngineActive = true;
     } else {
-      engineGlow.opacity = 0;
+      engineGlow.material.opacity = 0;
     }
 
     let rotating = false;
@@ -626,7 +794,7 @@ function update() {
       ship.energy -= 2 * dt;
     }
   } else {
-    engineGlow.opacity = 0;
+    engineGlow.material.opacity = 0;
   }
 
   ship.angVel.multiplyScalar(0.95);
@@ -666,6 +834,10 @@ function update() {
     if(speed > 50 && timeWarp === 1) {
       ship.hp -= speed * 0.1;
       showMessage("COLLISION WARNING");
+      if(performance.now() - lastDamageSound > 500) {
+        lastDamageSound = performance.now();
+        playHitSound();
+      }
       if(ship.hp <= 0) die();
     }
     
@@ -736,6 +908,8 @@ function update() {
       drillLine.position.copy(ship.pos);
       drillLine.quaternion.copy(ship.quat);
       drillLine.visible = true;
+      audioDrillActive = true;
+      playMineSound();
     }
   }
 
@@ -804,6 +978,7 @@ function update() {
 
 
   drawMap();
+  updateAudio(audioEngineActive, audioDrillActive);
 
   renderer.render(scene, camera);
   requestAnimationFrame(update);
