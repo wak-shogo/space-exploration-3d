@@ -24,6 +24,7 @@
 </head>
 <body>
 <div id="game-container"></div>
+<div id="labels-container" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:50;"></div>
 <canvas id="minimap" width="200" height="200"></canvas>
 <div id="ui">
   <div class="top-bar">
@@ -31,7 +32,7 @@
       HP <div class="bar"><div id="hp-bar" class="bar-inner" style="background:#f55;"></div></div>
       FUEL <div class="bar"><div id="fuel-bar" class="bar-inner" style="background:#fa0;"></div></div>
       ENGY <div class="bar"><div id="energy-bar" class="bar-inner" style="background:#0cf;"></div></div>
-      ROCKS: <span id="rock-val">0</span>
+      ROCKS: <span id="rock-val">0</span> | IRON: <span id="iron-val">0</span> | TITAN: <span id="titan-val">0</span>
     </div>
     <div style="display:flex; flex-direction:column;">
       <div class="btn" id="btn-map">🗺️ MAP</div>
@@ -110,8 +111,9 @@ shipGroup.add(engineGlow);
 
 // Vector line
 const vecGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-20)]);
-const vecMat = new THREE.LineDashedMaterial({ color: 0x00ff00, dashSize: 2, gapSize: 2 });
+const vecMat = new THREE.LineDashedMaterial({ color: 0x00ff00, dashSize: 100, gapSize: 100 });
 const vectorLine = new THREE.Line(vecGeo, vecMat);
+vectorLine.frustumCulled = false;
 vectorLine.computeLineDistances();
 scene.add(vectorLine);
 
@@ -126,7 +128,7 @@ const ship = {
   hp: 100, maxHp: 100,
   fuel: 100, maxFuel: 100,
   energy: 100, maxEnergy: 100,
-  rocks: 0
+  rocks: 0, iron: 0, titanium: 0
 };
 
 const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0 };
@@ -303,11 +305,25 @@ function createSystem(cx, cy, cz) {
     
     const angularSpeed = Math.sqrt((0.005 * starMass) / (dist*dist*dist));
     
+    const resources = [];
+    const numRes = Math.floor(random(s++) * 15) + 5;
+    for(let i=0; i<numRes; i++) {
+       const rType = random(s++) > 0.6 ? 'TITANIUM' : 'IRON';
+       const theta = random(s++) * Math.PI * 2;
+       const phi = Math.acos(2 * random(s++) - 1);
+       const rPos = new THREE.Vector3(
+           pRad * Math.sin(phi) * Math.cos(theta),
+           pRad * Math.sin(phi) * Math.sin(theta),
+           pRad * Math.cos(phi)
+       );
+       resources.push({ localPos: rPos, type: rType });
+    }
+
     celestialBodies.push({
       type: 'planet', mesh: pMesh, radius: pRad, mass: pRad * pRad * 0.1,
       pos: new THREE.Vector3(), vel: new THREE.Vector3(),
       dist: dist, angle: angle, angularSpeed: angularSpeed, parent: starMesh.position,
-      baseSpeed: angularSpeed
+      baseSpeed: angularSpeed, resources: resources
     });
   }
 }
@@ -360,9 +376,12 @@ function die() {
 }
 
 let lastTime = performance.now();
-const drillLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-40)]);
-const drillLineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
-const drillLine = new THREE.Line(drillLineGeo, drillLineMat);
+const drillGeo = new THREE.CylinderGeometry(0.8, 0.8, 60, 8);
+drillGeo.translate(0, -30, 0);
+drillGeo.rotateX(-Math.PI/2);
+const drillMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+const drillLine = new THREE.Mesh(drillGeo, drillMat);
+drillLine.frustumCulled = false;
 scene.add(drillLine);
 drillLine.visible = false;
 
@@ -471,7 +490,7 @@ function update() {
     
     const gRange = b.type === 'star' ? SYSTEM_GRID : b.radius * 20;
     if(dist < gRange && dist > b.radius) {
-      const force = (gravBase * b.mass) / distSq;
+      const force = (gravBase * b.mass * 30) / distSq;
       ship.vel.add(toBody.normalize().multiplyScalar(force * dt));
     }
   });
@@ -530,8 +549,20 @@ function update() {
     const downVec = new THREE.Vector3(0,-1,0).applyQuaternion(ship.quat);
     const toBody = new THREE.Vector3().subVectors(nearBody.pos, ship.pos).normalize();
     if(downVec.dot(toBody) > 0.5) { // pointing towards body
+      let minedType = 'ROCKS';
+      if(nearBody.resources) {
+         let minRDist = Infinity;
+         nearBody.resources.forEach(res => {
+            const rPosGlobal = res.localPos.clone().applyEuler(nearBody.mesh.rotation).add(nearBody.pos);
+            const dist = ship.pos.distanceTo(rPosGlobal);
+            if(dist < 50 && dist < minRDist) { minRDist = dist; minedType = res.type; }
+         });
+      }
       ship.energy -= 10 * dt;
-      ship.rocks += 8 * dt;
+      if(minedType === 'TITANIUM') ship.titanium += 2 * dt;
+      else if(minedType === 'IRON') ship.iron += 4 * dt;
+      else ship.rocks += 8 * dt;
+
       drillLine.position.copy(ship.pos);
       drillLine.quaternion.copy(ship.quat);
       drillLine.visible = true;
@@ -544,8 +575,14 @@ function update() {
   shipGroup.position.copy(ship.pos);
   shipGroup.quaternion.copy(ship.quat);
   
+  const speed = ship.vel.length();
   const vLineStart = ship.pos.clone().add(new THREE.Vector3(0, -2, 0).applyQuaternion(ship.quat));
-  vectorLine.geometry.setFromPoints([vLineStart, vLineStart.clone().add(ship.vel.clone().multiplyScalar(0.5))]);
+  if (speed > 0.1) {
+      const dir = ship.vel.clone().normalize();
+      vectorLine.geometry.setFromPoints([vLineStart, vLineStart.clone().add(dir.multiplyScalar(SYSTEM_GRID * 0.8))]);
+  } else {
+      vectorLine.geometry.setFromPoints([vLineStart, vLineStart.clone().add(new THREE.Vector3(0,0,-SYSTEM_GRID * 0.8).applyQuaternion(ship.quat))]);
+  }
   vectorLine.computeLineDistances();
 
   // Camera follow
@@ -562,6 +599,37 @@ function update() {
   document.getElementById('fuel-bar').style.width = `${Math.max(0, (ship.fuel/ship.maxFuel)*100)}%`;
   document.getElementById('energy-bar').style.width = `${Math.max(0, (ship.energy/ship.maxEnergy)*100)}%`;
   document.getElementById('rock-val').innerText = Math.floor(ship.rocks);
+  document.getElementById('iron-val').innerText = Math.floor(ship.iron);
+  document.getElementById('titan-val').innerText = Math.floor(ship.titanium);
+
+  const labelsContainer = document.getElementById('labels-container');
+  labelsContainer.innerHTML = '';
+  if (nearBody && nearBody.resources) {
+     nearBody.resources.forEach(res => {
+        const rPosGlobal = res.localPos.clone().applyEuler(nearBody.mesh.rotation).add(nearBody.pos);
+        const dist = ship.pos.distanceTo(rPosGlobal);
+        if(dist < 2000) { // show label if within 2000 units
+           const screenPos = rPosGlobal.clone().project(camera);
+           if(screenPos.z < 1) { // if in front of camera
+              const x = (screenPos.x *  .5 + .5) * window.innerWidth;
+              const y = (screenPos.y * -.5 + .5) * window.innerHeight;
+              const lbl = document.createElement('div');
+              lbl.style.position = 'absolute';
+              lbl.style.left = x + 'px';
+              lbl.style.top = (y - 30) + 'px';
+              lbl.style.color = res.type === 'TITANIUM' ? '#0af' : '#aaa';
+              lbl.style.fontSize = '14px';
+              lbl.style.fontWeight = 'bold';
+              lbl.style.textShadow = '0 0 4px #000';
+              lbl.style.borderLeft = '2px solid ' + (res.type === 'TITANIUM' ? '#0af' : '#aaa');
+              lbl.style.paddingLeft = '5px';
+              lbl.innerHTML = `${res.type}<br><span style="font-size:10px">${Math.floor(dist)}m</span>`;
+              labelsContainer.appendChild(lbl);
+           }
+        }
+     });
+  }
+
 
   drawMap();
 
