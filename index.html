@@ -85,9 +85,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050816, 0.000018);
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 150000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x02030a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 document.getElementById('game-container').appendChild(renderer.domElement);
 
 const ambientLight = new THREE.AmbientLight(0x222222);
@@ -420,6 +424,24 @@ function getSystemCenter(cx, cy, cz) {
 }
 
 const textureLoader = new THREE.TextureLoader();
+let starGlowTexture = null;
+
+function getStarGlowTexture() {
+  if(starGlowTexture) return starGlowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.12, 'rgba(255,245,190,0.75)');
+  grad.addColorStop(0.35, 'rgba(255,210,90,0.26)');
+  grad.addColorStop(1, 'rgba(255,190,60,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  starGlowTexture = new THREE.CanvasTexture(canvas);
+  return starGlowTexture;
+}
 
 function createSystem(cx, cy, cz) {
   const center = getSystemCenter(cx, cy, cz);
@@ -433,8 +455,21 @@ function createSystem(cx, cy, cz) {
   const starMesh = new THREE.Mesh(starGeo, starMat);
   starMesh.position.set(center.x, center.y, center.z);
   scene.add(starMesh);
+
+  const glowMat = new THREE.SpriteMaterial({
+    map: getStarGlowTexture(),
+    color: starColor,
+    transparent: true,
+    opacity: 0.7,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const starGlow = new THREE.Sprite(glowMat);
+  starGlow.position.copy(starMesh.position);
+  starGlow.scale.set(starRadius * 8, starRadius * 8, 1);
+  scene.add(starGlow);
   
-  const light = new THREE.PointLight(starColor, 1.5, SYSTEM_GRID * 2);
+  const light = new THREE.PointLight(starColor, 2.15, SYSTEM_GRID * 2.4);
   light.position.copy(starMesh.position);
   scene.add(light);
   
@@ -449,23 +484,34 @@ function createSystem(cx, cy, cz) {
      const rGeo = new THREE.DodecahedronGeometry(rSize, 0);
      const rMat = new THREE.MeshPhongMaterial({ color: rColor, flatShading: true });
      const rMesh = new THREE.Mesh(rGeo, rMat);
+     const theta = random(s++) * Math.PI * 2;
+     const phi = Math.acos(2 * random(s++) - 1);
+     const fieldRadius = starRadius + 1200 + random(s++) * SYSTEM_GRID * 0.55;
      const rPos = new THREE.Vector3(
-        center.x + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
-        center.y + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
-        center.z + (random(s++) - 0.5) * SYSTEM_GRID * 0.8
-     );
+        Math.sin(phi) * Math.cos(theta),
+        Math.sin(phi) * Math.sin(theta),
+        Math.cos(phi)
+     ).multiplyScalar(fieldRadius).add(new THREE.Vector3(center.x, center.y, center.z));
      rMesh.position.copy(rPos);
      scene.add(rMesh);
+     const driftTheta = random(s++) * Math.PI * 2;
+     const driftPhi = Math.acos(2 * random(s++) - 1);
+     const driftSpeed = 18 + random(s++) * 52;
+     const driftVel = new THREE.Vector3(
+        Math.sin(driftPhi) * Math.cos(driftTheta),
+        Math.sin(driftPhi) * Math.sin(driftTheta),
+        Math.cos(driftPhi)
+     ).multiplyScalar(driftSpeed);
      spaceResources.push({
         mesh: rMesh,
         pos: rPos,
-        vel: new THREE.Vector3((random(s++) - 0.5) * 8, (random(s++) - 0.5) * 8, (random(s++) - 0.5) * 8),
+        vel: driftVel,
         type: rType
      });
   }
   
-  if(random(s++) > 0.5 && (cx!==0||cy!==0||cz!==0)) {
-     const numEnemies = Math.floor(random(s++) * 3) + 2;
+  if(random(s++) > 0.25 && (cx!==0||cy!==0||cz!==0)) {
+     const numEnemies = Math.floor(random(s++) * 5) + 4;
      for(let i=0; i<numEnemies; i++) {
         const ePos = new THREE.Vector3(
            center.x + (random(s++)-0.5) * 5000,
