@@ -32,7 +32,7 @@
       HP <div class="bar"><div id="hp-bar" class="bar-inner" style="background:#f55;"></div></div>
       FUEL <div class="bar"><div id="fuel-bar" class="bar-inner" style="background:#fa0;"></div></div>
       ENGY <div class="bar"><div id="energy-bar" class="bar-inner" style="background:#0cf;"></div></div>
-      ROCKS: <span id="rock-val">0</span> | IRON: <span id="iron-val">0</span> | TITAN: <span id="titan-val">0</span>
+      ROCKS: <span id="rock-val">0</span> | IRON: <span id="iron-val">0</span> | TITAN: <span id="titan-val">0</span> | IRID: <span id="irid-val">0</span>
     </div>
     <div style="display:flex; flex-direction:column;">
       <div class="btn" id="btn-map">🗺️ MAP</div>
@@ -56,18 +56,29 @@
       <div class="ctrl-btn" onpointerdown="inp.yawR=1" onpointerup="inp.yawR=0" onpointerleave="inp.yawR=0" oncontextmenu="return false;">D(YR)</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:5px;width:120px;">
-      <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.drill=1" onpointerup="inp.drill=0" onpointerleave="inp.drill=0" oncontextmenu="return false;">⛏️ DRILL (F)</div>
+      <div style="display:flex; gap:5px;">
+        <div class="btn" style="flex:1; height:40px; line-height:24px; padding:0;" onpointerdown="inp.drill=1" onpointerup="inp.drill=0" onpointerleave="inp.drill=0" oncontextmenu="return false;">⛏️ (F)</div>
+        <div class="btn" style="flex:1; height:40px; line-height:24px; padding:0;" onpointerdown="inp.shoot=1" onpointerup="inp.shoot=0" onpointerleave="inp.shoot=0" oncontextmenu="return false;">💥 (G)</div>
+      </div>
       <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.fwd=1" onpointerup="inp.fwd=0" onpointerleave="inp.fwd=0" oncontextmenu="return false;">⇧ FWD (Sh)</div>
       <div class="btn" style="height:40px;line-height:24px;" onpointerdown="inp.bwd=1" onpointerup="inp.bwd=0" onpointerleave="inp.bwd=0" oncontextmenu="return false;">⇩ BWD (Ct)</div>
+      <div style="display:flex; gap:5px;">
+        <div class="btn" style="flex:1; height:40px; line-height:24px; padding:0;" onpointerdown="inp.strL=1" onpointerup="inp.strL=0" onpointerleave="inp.strL=0" oncontextmenu="return false;">⬅️ (Z)</div>
+        <div class="btn" style="flex:1; height:40px; line-height:24px; padding:0;" onpointerdown="inp.strR=1" onpointerup="inp.strR=0" onpointerleave="inp.strR=0" oncontextmenu="return false;">➡️ (C)</div>
+      </div>
     </div>
   </div>
 </div>
 
 <div id="craft-menu">
   <h2 style="color:#0f0; margin-top:0;">ENGINEERING</h2>
-  <div class="btn" onclick="craft('repair')">🔧 REPAIR HP (10 ROCKS)</div>
-  <div class="btn" onclick="craft('fuel')">⛽ REFINE FUEL (10 ROCKS, 20 ENGY)</div>
-  <div class="btn" onclick="craft('self_destruct')" style="color:#f55; border-color:#f55; margin-top:20px;">💥 EMERGENCY SELF DESTRUCT</div>
+  <div class="btn" onclick="craft('repair')">🔧 (10 ROCKS)</div>
+  <div class="btn" onclick="craft('fuel')">⛽ (10 ROCKS, 20 ENGY)</div>
+  <div class="btn" onclick="craft('solar')">☀️ SOLAR (10 IRON, 5 TITAN)</div>
+  <div class="btn" onclick="craft('weapon')">🔫 WEAPON (5 IRID)</div>
+  <div class="btn" onclick="craft('mine')">⛏️ DRILL (10 TITAN)</div>
+  <div class="btn" onclick="craft('thruster')">🚀 ENGINE (15 IRON)</div>
+  <div class="btn" onclick="craft('self_destruct')" style="color:#f55; border-color:#f55; margin-top:20px;">💥 DESTRUCT</div>
   <div class="btn" onclick="document.getElementById('craft-menu').style.display='none'" style="margin-top:20px; background:#444;">CLOSE</div>
 </div>
 
@@ -117,6 +128,23 @@ vectorLine.frustumCulled = false;
 vectorLine.computeLineDistances();
 scene.add(vectorLine);
 
+const solarPanelGroup = new THREE.Group();
+shipGroup.add(solarPanelGroup);
+
+function updateShipModel() {
+  solarPanelGroup.clear();
+  if((ship.solarLevel || 1) > 1) {
+     const len = (ship.solarLevel - 1) * 2;
+     const panelGeo = new THREE.BoxGeometry(len, 0.2, 2);
+     const panelMat = new THREE.MeshPhongMaterial({color: 0x2244ff});
+     const panelL = new THREE.Mesh(panelGeo, panelMat);
+     panelL.position.set(-1.5 - len/2, 0, 0);
+     const panelR = new THREE.Mesh(panelGeo, panelMat);
+     panelR.position.set(1.5 + len/2, 0, 0);
+     solarPanelGroup.add(panelL, panelR);
+  }
+}
+updateShipModel();
 scene.add(shipGroup);
 
 // Ship Physics
@@ -128,10 +156,11 @@ const ship = {
   hp: 100, maxHp: 100,
   fuel: 100, maxFuel: 100,
   energy: 100, maxEnergy: 100,
-  rocks: 0, iron: 0, titanium: 0
+  rocks: 0, iron: 0, titanium: 0, iridium: 0,
+  solarLevel: 1, weaponLevel: 1, mineRate: 1, thrusterLevel: 1
 };
 
-const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0 };
+const inp = { fwd:0, bwd:0, pitchU:0, pitchD:0, yawL:0, yawR:0, rollL:0, rollR:0, drill:0, shoot:0, strL:0, strR:0 };
 let timeWarp = 1;
 
 let camRotX = -Math.PI / 6;
@@ -177,6 +206,9 @@ window.addEventListener('keydown', e => {
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') inp.fwd=1;
   if(e.code==='ControlLeft'||e.code==='ControlRight') inp.bwd=1;
   if(e.code==='KeyF'||e.code==='Space') inp.drill=1;
+  if(e.code==='KeyG') inp.shoot=1;
+  if(e.code==='KeyZ') inp.strL=1;
+  if(e.code==='KeyC') inp.strR=1;
   if(e.code==='KeyM') toggleMap();
   if(e.code==='KeyT') toggleTime();
   if(e.code==='KeyC') toggleCraft();
@@ -191,6 +223,9 @@ window.addEventListener('keyup', e => {
   if(e.code==='ShiftLeft'||e.code==='ShiftRight') inp.fwd=0;
   if(e.code==='ControlLeft'||e.code==='ControlRight') inp.bwd=0;
   if(e.code==='KeyF'||e.code==='Space') inp.drill=0;
+  if(e.code==='KeyG') inp.shoot=0;
+  if(e.code==='KeyZ') inp.strL=0;
+  if(e.code==='KeyC') inp.strR=0;
 });
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -226,10 +261,23 @@ function showMessage(text) {
 function craft(type) {
   if(type === 'repair' && ship.rocks >= 10) {
     if(ship.hp >= ship.maxHp) { showMessage("HP FULL"); return; }
-    ship.rocks -= 10; ship.hp = Math.min(ship.maxHp, ship.hp + 50); showMessage("REPAIRED +50 HP");
+    ship.rocks -= 10; ship.hp = Math.min(ship.maxHp, ship.hp + 50); showMessage("REPAIRED");
   } else if(type === 'fuel' && ship.rocks >= 10 && ship.energy >= 20) {
     if(ship.fuel >= ship.maxFuel) { showMessage("FUEL FULL"); return; }
-    ship.rocks -= 10; ship.energy -= 20; ship.fuel = Math.min(ship.maxFuel, ship.fuel + 50); showMessage("REFINED +50 FUEL");
+    ship.rocks -= 10; ship.energy -= 20; ship.fuel = Math.min(ship.maxFuel, ship.fuel + 50); showMessage("REFINED");
+  } else if(type === 'solar' && ship.iron >= 10 && ship.titanium >= 5) {
+    ship.iron -= 10; ship.titanium -= 5;
+    ship.solarLevel = (ship.solarLevel || 1) + 1;
+    updateShipModel(); showMessage("SOLAR UPGRADED");
+  } else if(type === 'weapon' && (ship.iridium||0) >= 5) {
+    ship.iridium -= 5;
+    ship.weaponLevel = (ship.weaponLevel || 1) + 1; showMessage("WEAPON UPGRADED");
+  } else if(type === 'mine' && ship.titanium >= 10) {
+    ship.titanium -= 10;
+    ship.mineRate = (ship.mineRate || 1) + 1; showMessage("DRILL UPGRADED");
+  } else if(type === 'thruster' && ship.iron >= 15) {
+    ship.iron -= 15;
+    ship.thrusterLevel = (ship.thrusterLevel || 1) + 0.5; showMessage("ENGINE UPGRADED");
   } else if(type === 'self_destruct') {
     die(); document.getElementById('craft-menu').style.display='none';
   } else {
@@ -239,6 +287,9 @@ function craft(type) {
 
 // World Generation
 const celestialBodies = [];
+const enemies = [];
+const drops = [];
+const lasers = [];
 const generatedSystems = new Set();
 const SYSTEM_GRID = 30000;
 
@@ -281,6 +332,23 @@ function createSystem(cx, cy, cz) {
   const starMass = starRadius * starRadius * 0.5;
   celestialBodies.push({ type: 'star', mesh: starMesh, radius: starRadius, mass: starMass, pos: starMesh.position });
   
+  if(random(s++) > 0.5 && (cx!==0||cy!==0||cz!==0)) {
+     const numEnemies = Math.floor(random(s++) * 3) + 2;
+     for(let i=0; i<numEnemies; i++) {
+        const ePos = new THREE.Vector3(
+           center.x + (random(s++)-0.5) * 5000,
+           center.y + (random(s++)-0.5) * 5000,
+           center.z + (random(s++)-0.5) * 5000
+        );
+        const eGeo = new THREE.OctahedronGeometry(4);
+        const eMat = new THREE.MeshPhongMaterial({color: 0xff0055});
+        const eMesh = new THREE.Mesh(eGeo, eMat);
+        eMesh.position.copy(ePos);
+        scene.add(eMesh);
+        enemies.push({ mesh: eMesh, pos: ePos, vel: new THREE.Vector3(), hp: 20 });
+     }
+  }
+
   const numPlanets = Math.floor(random(s++) * 4) + 1;
   for(let p=0; p<numPlanets; p++) {
     const pRad = 80 + random(s++) * 300;
@@ -316,7 +384,15 @@ function createSystem(cx, cy, cz) {
            pRad * Math.sin(phi) * Math.sin(theta),
            pRad * Math.cos(phi)
        );
-       resources.push({ localPos: rPos, type: rType });
+       const resSize = rType === 'TITANIUM' ? 6 : 8;
+       const resColor = rType === 'TITANIUM' ? 0x00aaff : 0xaaaaaa;
+       const resGeo = new THREE.BoxGeometry(resSize, resSize, resSize);
+       const resMat = new THREE.MeshPhongMaterial({ color: resColor });
+       const resMesh = new THREE.Mesh(resGeo, resMat);
+       resMesh.position.copy(rPos);
+       resMesh.lookAt(new THREE.Vector3(0,0,0));
+       pMesh.add(resMesh);
+       resources.push({ localPos: rPos, type: rType, mesh: resMesh, harvested: false });
     }
 
     celestialBodies.push({
@@ -376,9 +452,9 @@ function die() {
 }
 
 let lastTime = performance.now();
-const drillGeo = new THREE.CylinderGeometry(0.8, 0.8, 60, 8);
-drillGeo.translate(0, -30, 0);
-drillGeo.rotateX(-Math.PI/2);
+const drillGeo = new THREE.CylinderGeometry(0.8, 0.8, 120, 8);
+drillGeo.rotateX(Math.PI/2);
+drillGeo.translate(0, 0, -60);
 const drillMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
 const drillLine = new THREE.Mesh(drillGeo, drillMat);
 drillLine.frustumCulled = false;
@@ -414,8 +490,88 @@ function update() {
   dt *= timeWarp;
   const gravBase = parseFloat(document.getElementById('grav-slider').value) * 0.005;
 
-  ship.energy = Math.min(ship.maxEnergy, ship.energy + 2 * dt);
+  ship.energy = Math.min(ship.maxEnergy, ship.energy + (1 + (ship.solarLevel||1)) * dt);
   ship.fuel = Math.min(ship.maxFuel, ship.fuel + 0.1 * dt); // slow regen
+
+  // Lasers
+  if(inp.shoot && timeWarp === 1 && ship.energy > 5) {
+     ship.energy -= 20; // burst cost
+     inp.shoot = 0; // semi-auto
+     const lGeo = new THREE.CylinderGeometry(0.2, 0.2, 20, 4);
+     lGeo.rotateX(Math.PI/2);
+     const lMat = new THREE.MeshBasicMaterial({color: 0x00ffff});
+     const lMesh = new THREE.Mesh(lGeo, lMat);
+     const lPos = ship.pos.clone();
+     const lDir = new THREE.Vector3(0,0,-1).applyQuaternion(ship.quat);
+     lMesh.position.copy(lPos);
+     lMesh.quaternion.copy(ship.quat);
+     scene.add(lMesh);
+     lasers.push({ mesh: lMesh, pos: lPos, dir: lDir, life: 2.0, dmg: 10 * (ship.weaponLevel||1) });
+  }
+
+  for(let i=lasers.length-1; i>=0; i--) {
+     let l = lasers[i];
+     l.pos.add(l.dir.clone().multiplyScalar(1000 * dt));
+     l.mesh.position.copy(l.pos);
+     l.life -= dt;
+     let hit = false;
+     for(let j=enemies.length-1; j>=0; j--) {
+        let e = enemies[j];
+        if(e.pos.distanceTo(l.pos) < 20) {
+           e.hp -= l.dmg;
+           hit = true;
+           if(e.hp <= 0) {
+              scene.remove(e.mesh);
+              // Drop iridium
+              const dGeo = new THREE.DodecahedronGeometry(2);
+              const dMat = new THREE.MeshPhongMaterial({color: 0xff00ff});
+              const dMesh = new THREE.Mesh(dGeo, dMat);
+              dMesh.position.copy(e.pos);
+              scene.add(dMesh);
+              drops.push({ mesh: dMesh, pos: e.pos.clone() });
+              enemies.splice(j, 1);
+           }
+           break;
+        }
+     }
+     if(hit || l.life <= 0) {
+        scene.remove(l.mesh);
+        lasers.splice(i, 1);
+     }
+  }
+
+  // Drops collection
+  for(let i=drops.length-1; i>=0; i--) {
+     let d = drops[i];
+     d.mesh.rotation.x += dt;
+     d.mesh.rotation.y += dt;
+     if(ship.pos.distanceTo(d.pos) < 50) {
+        ship.iridium = (ship.iridium || 0) + 1;
+        scene.remove(d.mesh);
+        drops.splice(i, 1);
+        showMessage("IRIDIUM +1");
+     }
+  }
+
+  // Enemy tracking
+  if(timeWarp === 1) {
+     enemies.forEach(e => {
+        const dist = e.pos.distanceTo(ship.pos);
+        if(dist < 8000) {
+           const dir = new THREE.Vector3().subVectors(ship.pos, e.pos).normalize();
+           e.vel.add(dir.multiplyScalar(20 * dt));
+           if(e.vel.lengthSq() > 2500) e.vel.normalize().multiplyScalar(50);
+           e.pos.add(e.vel.clone().multiplyScalar(dt));
+           e.mesh.position.copy(e.pos);
+           e.mesh.lookAt(ship.pos);
+           if(dist < 10) {
+              ship.hp -= 20 * dt;
+              showMessage("ENEMY ATTACK");
+              if(ship.hp <= 0) die();
+           }
+        }
+     });
+  }
 
   // Celestial physics (parametric orbits)
   celestialBodies.forEach(b => {
@@ -443,8 +599,10 @@ function update() {
     const thrustVec = new THREE.Vector3(0,0,0);
     if(inp.fwd) { thrustVec.z -= 1; thrusting = true; }
     if(inp.bwd) { thrustVec.z += 1; thrusting = true; }
+    if(inp.strL) { thrustVec.x -= 1; thrusting = true; }
+    if(inp.strR) { thrustVec.x += 1; thrusting = true; }
     if(thrusting) {
-      thrustVec.normalize().multiplyScalar(40 * dt);
+      thrustVec.normalize().multiplyScalar(40 * (ship.thrusterLevel || 1) * dt);
       thrustVec.applyQuaternion(ship.quat);
       ship.vel.add(thrustVec);
       ship.fuel -= 5 * dt;
@@ -545,23 +703,35 @@ function update() {
 
   // Drill
   drillLine.visible = false;
-  if(inp.drill && timeWarp === 1 && nearBody && minDist < nearBody.radius + 20 && ship.energy > 5) {
-    const downVec = new THREE.Vector3(0,-1,0).applyQuaternion(ship.quat);
+  if(inp.drill && timeWarp === 1 && nearBody && minDist < nearBody.radius + 100 && ship.energy > 5) {
+    const forwardVec = new THREE.Vector3(0,0,-1).applyQuaternion(ship.quat);
     const toBody = new THREE.Vector3().subVectors(nearBody.pos, ship.pos).normalize();
-    if(downVec.dot(toBody) > 0.5) { // pointing towards body
+    if(forwardVec.dot(toBody) > 0.5) { // pointing towards body
       let minedType = 'ROCKS';
+      let harvestedRes = null;
       if(nearBody.resources) {
          let minRDist = Infinity;
          nearBody.resources.forEach(res => {
+            if(res.harvested) return;
             const rPosGlobal = res.localPos.clone().applyEuler(nearBody.mesh.rotation).add(nearBody.pos);
             const dist = ship.pos.distanceTo(rPosGlobal);
-            if(dist < 50 && dist < minRDist) { minRDist = dist; minedType = res.type; }
+            if(dist < 100 && dist < minRDist) { 
+               minRDist = dist; 
+               minedType = res.type; 
+               harvestedRes = res;
+            }
          });
       }
       ship.energy -= 10 * dt;
-      if(minedType === 'TITANIUM') ship.titanium += 2 * dt;
-      else if(minedType === 'IRON') ship.iron += 4 * dt;
-      else ship.rocks += 8 * dt;
+      let mineRate = ship.mineRate || 1;
+      if(minedType === 'TITANIUM') ship.titanium += 2 * dt * mineRate;
+      else if(minedType === 'IRON') ship.iron += 4 * dt * mineRate;
+      else ship.rocks += 8 * dt * mineRate;
+
+      if(harvestedRes && Math.random() < 0.05 * mineRate) {
+          harvestedRes.harvested = true;
+          harvestedRes.mesh.visible = false;
+      }
 
       drillLine.position.copy(ship.pos);
       drillLine.quaternion.copy(ship.quat);
@@ -601,11 +771,13 @@ function update() {
   document.getElementById('rock-val').innerText = Math.floor(ship.rocks);
   document.getElementById('iron-val').innerText = Math.floor(ship.iron);
   document.getElementById('titan-val').innerText = Math.floor(ship.titanium);
+  document.getElementById('irid-val').innerText = Math.floor(ship.iridium || 0);
 
   const labelsContainer = document.getElementById('labels-container');
   labelsContainer.innerHTML = '';
   if (nearBody && nearBody.resources) {
      nearBody.resources.forEach(res => {
+        if(res.harvested) return;
         const rPosGlobal = res.localPos.clone().applyEuler(nearBody.mesh.rotation).add(nearBody.pos);
         const dist = ship.pos.distanceTo(rPosGlobal);
         if(dist < 2000) { // show label if within 2000 units
