@@ -408,8 +408,10 @@ const enemyBolts = [];
 const spaceResources = [];
 const generationQueue = [];
 const generatedSystems = new Set();
+const systemObjects = new Map();
 const SYSTEM_GRID = 30000;
 const RESOURCE_PICKUP_RANGE = 120;
+const DESPAWN_CHUNK_DISTANCE = 2;
 
 function hash(x, y, z) {
   let h = (x|0) * 374761393 + (y|0) * 668265263 + (z|0) * 374761393;
@@ -426,6 +428,43 @@ function getSystemCenter(cx, cy, cz) {
     z: cz * SYSTEM_GRID + (random(s++) - 0.5) * SYSTEM_GRID * 0.8,
     s: s
   };
+}
+
+function systemKey(cx, cy, cz) {
+  return `${cx},${cy},${cz}`;
+}
+
+function trackSystemObject(key, obj) {
+  if(!systemObjects.has(key)) systemObjects.set(key, []);
+  systemObjects.get(key).push(obj);
+  obj.userData.systemKey = key;
+}
+
+function untrackSystemObject(key, obj) {
+  const list = systemObjects.get(key);
+  if(!list) return;
+  const idx = list.indexOf(obj);
+  if(idx >= 0) list.splice(idx, 1);
+}
+
+function disposeObject3D(obj) {
+  scene.remove(obj);
+  obj.traverse(child => {
+    if(child.geometry) child.geometry.dispose();
+    if(child.material) {
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach(mat => mat.dispose());
+    }
+  });
+}
+
+function removeFromArrayBySystem(arr, key, disposeMeshes=false) {
+  for(let i=arr.length-1; i>=0; i--) {
+    if(arr[i].systemKey === key) {
+      if(disposeMeshes && arr[i].mesh) disposeObject3D(arr[i].mesh);
+      arr.splice(i, 1);
+    }
+  }
 }
 
 const textureLoader = new THREE.TextureLoader();
@@ -450,6 +489,7 @@ function getStarGlowTexture() {
 }
 
 function createSystem(cx, cy, cz) {
+  const key = systemKey(cx, cy, cz);
   const center = getSystemCenter(cx, cy, cz);
   let s = center.s;
   if (random(s++) > 0.4 && (cx!==0||cy!==0||cz!==0)) return; // 40% chance, but 0,0,0 always has one
@@ -461,6 +501,7 @@ function createSystem(cx, cy, cz) {
   const starMesh = new THREE.Mesh(starGeo, starMat);
   starMesh.position.set(center.x, center.y, center.z);
   scene.add(starMesh);
+  trackSystemObject(key, starMesh);
 
   const glowMat = new THREE.SpriteMaterial({
     map: getStarGlowTexture(),
@@ -474,13 +515,15 @@ function createSystem(cx, cy, cz) {
   starGlow.position.copy(starMesh.position);
   starGlow.scale.set(SYSTEM_GRID * 0.7, SYSTEM_GRID * 0.7, 1);
   scene.add(starGlow);
+  trackSystemObject(key, starGlow);
   
   const light = new THREE.PointLight(starColor, 2.15, SYSTEM_GRID * 2.4);
   light.position.copy(starMesh.position);
   scene.add(light);
+  trackSystemObject(key, light);
   
   const starMass = starRadius * starRadius * 0.5;
-  celestialBodies.push({ type: 'star', mesh: starMesh, radius: starRadius, mass: starMass, pos: starMesh.position });
+  celestialBodies.push({ type: 'star', mesh: starMesh, radius: starRadius, mass: starMass, pos: starMesh.position, systemKey: key });
 
   const spaceResourceCount = 45 + Math.floor(random(s++) * 35);
   for(let i=0; i<spaceResourceCount; i++) {
@@ -500,6 +543,7 @@ function createSystem(cx, cy, cz) {
      ).multiplyScalar(fieldRadius).add(new THREE.Vector3(center.x, center.y, center.z));
      rMesh.position.copy(rPos);
      scene.add(rMesh);
+     trackSystemObject(key, rMesh);
      const driftTheta = random(s++) * Math.PI * 2;
      const driftPhi = Math.acos(2 * random(s++) - 1);
      const driftSpeed = 18 + random(s++) * 52;
@@ -512,7 +556,8 @@ function createSystem(cx, cy, cz) {
         mesh: rMesh,
         pos: rPos,
         vel: driftVel,
-        type: rType
+        type: rType,
+        systemKey: key
      });
   }
   
@@ -529,12 +574,13 @@ function createSystem(cx, cy, cz) {
         const eMesh = new THREE.Mesh(eGeo, eMat);
         eMesh.position.copy(ePos);
         scene.add(eMesh);
+        trackSystemObject(key, eMesh);
         const shooter = random(s++) > 0.55;
         if(shooter) {
           eMat.color.set(0xffaa00);
           eMesh.scale.set(1.25, 1.25, 1.25);
         }
-        enemies.push({ mesh: eMesh, pos: ePos, vel: new THREE.Vector3(), hp: shooter ? 28 : 20, shooter: shooter, shootCooldown: 1 + random(s++) * 2 });
+        enemies.push({ mesh: eMesh, pos: ePos, vel: new THREE.Vector3(), hp: shooter ? 28 : 20, shooter: shooter, shootCooldown: 1 + random(s++) * 2, systemKey: key });
      }
   }
 
@@ -559,6 +605,7 @@ function createSystem(cx, cy, cz) {
     const pMat = new THREE.MeshPhongMaterial({ color: pColor, flatShading: true });
     const pMesh = new THREE.Mesh(pGeo, pMat);
     scene.add(pMesh);
+    trackSystemObject(key, pMesh);
     
     const angularSpeed = Math.sqrt((0.005 * starMass) / (dist*dist*dist));
     
@@ -588,13 +635,13 @@ function createSystem(cx, cy, cz) {
       type: 'planet', mesh: pMesh, radius: pRad, mass: pRad * pRad * 0.1,
       pos: new THREE.Vector3(), vel: new THREE.Vector3(),
       dist: dist, angle: angle, angularSpeed: angularSpeed, parent: starMesh.position,
-      baseSpeed: angularSpeed, resources: resources
+      baseSpeed: angularSpeed, resources: resources, systemKey: key
     });
   }
 }
 
 function enqueueSystem(cx, cy, cz, priority=false) {
-  const key = `${cx},${cy},${cz}`;
+  const key = systemKey(cx, cy, cz);
   if (generatedSystems.has(key)) return;
   generatedSystems.add(key);
   const item = { cx, cy, cz };
@@ -633,6 +680,36 @@ function checkChunks() {
         enqueueSystem(cx+i, cy+j, cz+k, Math.abs(i) + Math.abs(j) + Math.abs(k) <= 1);
       }
     }
+  }
+}
+
+function despawnFarSystems() {
+  const cx = Math.floor(ship.pos.x / SYSTEM_GRID);
+  const cy = Math.floor(ship.pos.y / SYSTEM_GRID);
+  const cz = Math.floor(ship.pos.z / SYSTEM_GRID);
+
+  Array.from(generatedSystems).forEach(key => {
+    const parts = key.split(',').map(Number);
+    if(parts.length !== 3) return;
+    const dx = Math.abs(parts[0] - cx);
+    const dy = Math.abs(parts[1] - cy);
+    const dz = Math.abs(parts[2] - cz);
+    if(Math.max(dx, dy, dz) <= DESPAWN_CHUNK_DISTANCE) return;
+
+    const objects = systemObjects.get(key) || [];
+    objects.forEach(disposeObject3D);
+    systemObjects.delete(key);
+    generatedSystems.delete(key);
+    removeFromArrayBySystem(celestialBodies, key);
+    removeFromArrayBySystem(enemies, key);
+    removeFromArrayBySystem(spaceResources, key);
+    removeFromArrayBySystem(drops, key, true);
+    removeFromArrayBySystem(enemyBolts, key, true);
+  });
+
+  for(let i=generationQueue.length-1; i>=0; i--) {
+    const key = systemKey(generationQueue[i].cx, generationQueue[i].cy, generationQueue[i].cz);
+    if(!generatedSystems.has(key)) generationQueue.splice(i, 1);
   }
 }
 
@@ -739,21 +816,22 @@ function update() {
            e.hp -= l.dmg;
            hit = true;
            if(e.hp <= 0) {
-              scene.remove(e.mesh);
+              untrackSystemObject(e.systemKey, e.mesh);
+              disposeObject3D(e.mesh);
               // Drop iridium
               const dGeo = new THREE.DodecahedronGeometry(2);
               const dMat = new THREE.MeshPhongMaterial({color: 0xff00ff});
               const dMesh = new THREE.Mesh(dGeo, dMat);
               dMesh.position.copy(e.pos);
               scene.add(dMesh);
-              drops.push({ mesh: dMesh, pos: e.pos.clone() });
+              drops.push({ mesh: dMesh, pos: e.pos.clone(), systemKey: e.systemKey });
               enemies.splice(j, 1);
            }
            break;
         }
      }
      if(hit || l.life <= 0) {
-        scene.remove(l.mesh);
+        disposeObject3D(l.mesh);
         lasers.splice(i, 1);
      }
   }
@@ -768,13 +846,13 @@ function update() {
         ship.hp -= 16;
         showMessage("LASER HIT");
         playHitSound();
-        scene.remove(b.mesh);
+        disposeObject3D(b.mesh);
         enemyBolts.splice(i, 1);
         if(ship.hp <= 0) die();
         continue;
      }
      if(b.life <= 0) {
-        scene.remove(b.mesh);
+        disposeObject3D(b.mesh);
         enemyBolts.splice(i, 1);
      }
   }
@@ -786,7 +864,7 @@ function update() {
      d.mesh.rotation.y += dt;
      if(ship.pos.distanceTo(d.pos) < 50) {
         ship.iridium = (ship.iridium || 0) + 1;
-        scene.remove(d.mesh);
+        disposeObject3D(d.mesh);
         drops.splice(i, 1);
         showMessage("IRIDIUM +1");
         playCollectSound('IRIDIUM');
@@ -815,7 +893,8 @@ function update() {
            showMessage("IRON +1");
         }
         playCollectSound(r.type);
-        scene.remove(r.mesh);
+        untrackSystemObject(r.systemKey, r.mesh);
+        disposeObject3D(r.mesh);
         spaceResources.splice(i, 1);
      }
   }
@@ -842,7 +921,7 @@ function update() {
                  boltMesh.position.copy(e.pos);
                  boltMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
                  scene.add(boltMesh);
-                 enemyBolts.push({ mesh: boltMesh, pos: e.pos.clone(), dir: dir, life: 4 });
+                 enemyBolts.push({ mesh: boltMesh, pos: e.pos.clone(), dir: dir, life: 4, systemKey: e.systemKey });
                  e.shootCooldown = 1.4 + Math.random() * 1.8;
                  playEnemyLaserSound();
               }
@@ -1035,6 +1114,7 @@ function update() {
 
   checkChunks();
   processGenerationQueue(1, timeWarp > 1 ? 2 : 3);
+  despawnFarSystems();
 
   // Visual updates
   shipGroup.position.copy(ship.pos);
